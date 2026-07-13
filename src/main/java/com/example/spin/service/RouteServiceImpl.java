@@ -5,7 +5,6 @@ import java.util.ArrayList;
 import java.util.List;
 
 import org.springframework.stereotype.Service;
-import org.springframework.transaction.annotation.Transactional;
 
 import com.example.spin.controller.dto.RouteDetailResponse;
 import com.example.spin.controller.dto.RouteGenerateRequest;
@@ -29,15 +28,24 @@ import lombok.RequiredArgsConstructor;
 @RequiredArgsConstructor
 public class RouteServiceImpl implements RouteService {
 
+    // 후보를 이 반경(도보로 무리 없는 거리) 안으로 추려서 넘겨야, AI가 구 반대편끼리 묶는 걸 막을 수 있다
+    private static final int MAX_CANDIDATE_RADIUS_METERS = 2000;
+
     private final StoreRepository storeRepository;
     private final RouteRepository routeRepository;
     private final RouteChallengeRepository routeChallengeRepository;
     private final ClaudeRouteRecommender claudeRouteRecommender;
 
     @Override
-    @Transactional
     public RouteGenerateResponse generateRoute(RouteGenerateRequest request) {
-        List<Store> candidates = storeRepository.findByRegion(request.region());
+        // Claude 호출이 오래 걸리므로(수십 초) DB 트랜잭션을 걸어두지 않는다 —
+        // 조회는 트랜잭션 없이, 최종 저장은 routeRepository.save()가 자체 트랜잭션으로 처리한다
+        List<Store> regionStores = storeRepository.findByRegion(request.region());
+
+        boolean hasUserLocation = request.latitude() != null && request.longitude() != null;
+        List<Store> candidates = hasUserLocation
+                ? filterByProximity(regionStores, request.latitude(), request.longitude())
+                : regionStores;
 
         RouteRecommendation recommendation =
                 claudeRouteRecommender.recommend(request.region(), request.purpose(), candidates);
@@ -47,8 +55,6 @@ public class RouteServiceImpl implements RouteService {
         List<Store> selectedStores = recommendation.stops().stream()
                 .map(stop -> findCandidate(candidates, stop.storeId()))
                 .toList();
-
-        boolean hasUserLocation = request.latitude() != null && request.longitude() != null;
 
         List<Integer> walkMinutesByStop = new ArrayList<>();
         int totalDistanceMeters = 0;
@@ -112,6 +118,17 @@ public class RouteServiceImpl implements RouteService {
                 route.getId(), route.getRegion(), route.getPurpose(),
                 route.getTotalDistanceMeters(), route.getEstimatedDurationMinutes(),
                 stopResponses, completedCount);
+    }
+
+    private List<Store> filterByProximity(List<Store> candidates, double latitude, double longitude) {
+        List<Store> nearby = candidates.stream()
+                .filter(store -> WalkingDistanceCalculator.estimatedWalkingDistanceMeters(
+                        latitude, longitude, store.getLatitude(), store.getLongitude())
+                        <= MAX_CANDIDATE_RADIUS_METERS)
+                .toList();
+
+        // 반경 안에 후보가 너무 적으면(한적한 동네 등) 루트 자체를 못 만드니, 원래 후보 전체로 되돌아간다
+        return nearby.size() >= 2 ? nearby : candidates;
     }
 
     private Store findCandidate(List<Store> candidates, int storeId) {

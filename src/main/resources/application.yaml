@@ -19,5 +19,4 @@ anthropic:
   model: claude-sonnet-5
 
 app:
-  # QR 딥링크에 쓰는 앱 커스텀 URL 스킴 (예: spin://checkin?code=...)
   deep-link-scheme: spin
