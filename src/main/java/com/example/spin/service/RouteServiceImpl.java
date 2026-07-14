@@ -2,6 +2,7 @@ package com.example.spin.service;
 
 import java.time.LocalDateTime;
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.List;
 
 import org.springframework.stereotype.Service;
@@ -31,6 +32,10 @@ public class RouteServiceImpl implements RouteService {
     // 후보를 이 반경(도보로 무리 없는 거리) 안으로 추려서 넘겨야, AI가 구 반대편끼리 묶는 걸 막을 수 있다
     private static final int MAX_CANDIDATE_RADIUS_METERS = 2000;
 
+    // 지역에 수천 건씩 있는 경우 반경 필터링만으로는 개수가 안 줄 수 있어(밀집 지역),
+    // 프롬프트 폭주(400 prompt too long)를 막기 위해 후보 개수 자체에 상한을 둔다
+    private static final int MAX_CANDIDATES = 40;
+
     private final StoreRepository storeRepository;
     private final RouteRepository routeRepository;
     private final RouteChallengeRepository routeChallengeRepository;
@@ -45,7 +50,7 @@ public class RouteServiceImpl implements RouteService {
         boolean hasUserLocation = request.latitude() != null && request.longitude() != null;
         List<Store> candidates = hasUserLocation
                 ? filterByProximity(regionStores, request.latitude(), request.longitude())
-                : regionStores;
+                : filterNearAnchor(regionStores);
 
         RouteRecommendation recommendation =
                 claudeRouteRecommender.recommend(request.region(), request.purpose(), candidates);
@@ -121,14 +126,32 @@ public class RouteServiceImpl implements RouteService {
     }
 
     private List<Store> filterByProximity(List<Store> candidates, double latitude, double longitude) {
-        List<Store> nearby = candidates.stream()
+        List<Store> sortedByDistance = candidates.stream()
+                .sorted(Comparator.comparingInt(store -> WalkingDistanceCalculator.estimatedWalkingDistanceMeters(
+                        latitude, longitude, store.getLatitude(), store.getLongitude())))
+                .toList();
+
+        List<Store> withinRadius = sortedByDistance.stream()
                 .filter(store -> WalkingDistanceCalculator.estimatedWalkingDistanceMeters(
                         latitude, longitude, store.getLatitude(), store.getLongitude())
                         <= MAX_CANDIDATE_RADIUS_METERS)
                 .toList();
 
-        // 반경 안에 후보가 너무 적으면(한적한 동네 등) 루트 자체를 못 만드니, 원래 후보 전체로 되돌아간다
-        return nearby.size() >= 2 ? nearby : candidates;
+        // 반경 안에 후보가 너무 적으면(한적한 동네 등) 루트 자체를 못 만드니, 거리순으로 가장 가까운 후보들로 대체한다
+        // (지역 전체를 통째로 넘기면 프롬프트가 폭주할 수 있어 무제한 폴백은 하지 않는다)
+        List<Store> base = withinRadius.size() >= 2 ? withinRadius : sortedByDistance;
+        return base.stream().limit(MAX_CANDIDATES).toList();
+    }
+
+    // 사용자 GPS가 없을 때는 기준점이 없으니, 후보 목록의 첫 가게를 임시 기준점 삼아
+    // 그 근처로 후보를 좁힌다 (그래야 구 전체 수천 건이 그대로 프롬프트에 들어가는 걸 막을 수 있다)
+    private List<Store> filterNearAnchor(List<Store> candidates) {
+        if (candidates.isEmpty()) {
+            return candidates;
+        }
+
+        Store anchor = candidates.get(0);
+        return filterByProximity(candidates, anchor.getLatitude(), anchor.getLongitude());
     }
 
     private Store findCandidate(List<Store> candidates, int storeId) {
