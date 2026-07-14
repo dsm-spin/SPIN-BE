@@ -1,0 +1,61 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<title>Spin - 루트 보러가기</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<style>
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Malgun Gothic", sans-serif;
+    text-align: center;
+    padding: 60px 20px;
+    background: #111;
+    color: #fff;
+  }
+  h1 { font-size: 22px; margin-bottom: 12px; }
+  p { color: #aaa; margin-bottom: 32px; }
+  a.button {
+    display: inline-block;
+    padding: 14px 28px;
+    border-radius: 999px;
+    background: #fff;
+    color: #111;
+    font-weight: 600;
+    text-decoration: none;
+    margin: 6px;
+  }
+  #fallback { display: none; margin-top: 24px; }
+</style>
+</head>
+<body>
+  <h1>친구가 완주한 루트, 궁금하지 않아요?</h1>
+  <p>Spin 앱에서 바로 확인해보세요.</p>
+  <a class="button" id="open-app" href="#">Spin에서 보기</a>
+
+  <div id="fallback">
+    <p>앱이 안 열리시나요?</p>
+    <!-- TODO: 실제 스토어 링크로 교체 -->
+    <a class="button" href="https://apps.apple.com/app/idXXXXXXXXXX">App Store</a>
+    <a class="button" href="https://play.google.com/store/apps/details?id=com.example.spin">Google Play</a>
+  </div>
+
+  <script>
+    var params = new URLSearchParams(window.location.search);
+    var routeId = params.get('routeId');
+    var deepLink = routeId ? ('spin://route?id=' + encodeURIComponent(routeId)) : 'spin://';
+
+    document.getElementById('open-app').href = deepLink;
+
+    function tryOpenApp() {
+      window.location.href = deepLink;
+      // 앱으로 넘어갔으면 이 페이지는 백그라운드로 밀려나서 아래 타이머가 의미 없어지고,
+      // 안 넘어갔을 때만(앱 미설치 등) 폴백 버튼을 보여준다
+      setTimeout(function () {
+        document.getElementById('fallback').style.display = 'block';
+      }, 1500);
+    }
+
+    tryOpenApp();
+  </script>
+</body>
+</html>
