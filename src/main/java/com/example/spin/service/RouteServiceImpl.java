@@ -37,10 +37,15 @@ public class RouteServiceImpl implements RouteService {
     // 가게 1곳당 대략 50토큰 안팎이라 400개로 잡아도 2만 토큰 수준 (Anthropic 한도 20만 토큰 대비 여유 충분)
     private static final int MAX_CANDIDATES = 400;
 
-    // 반경 안을 이만큼의 구간으로 나눠서, 가까운 곳부터 먼 곳까지 고르게 후보를 뽑는다.
-    // 그냥 가까운 순으로 40개를 자르면 번화가처럼 밀집된 동네에서는 후보가 전부 한 골목에
-    // 몰려버려서, Claude가 뭘 고르든 가게 간 거리가 항상 짧게 나올 수밖에 없다.
+    // 반경 안을 이만큼의 구간으로 나눠서 후보를 뽑는다.
+    // 그냥 가까운 순으로 자르면 번화가처럼 밀집된 동네에서는 후보가 전부 한 골목에 몰려버려서,
+    // Claude가 뭘 고르든 가게 간 거리가 항상 짧게 나올 수밖에 없다.
     private static final int DISTANCE_BAND_COUNT = 4;
+
+    // 구간별 후보 배분 비중 (가까운 구간부터 먼 구간 순). 먼 구간일수록 비중을 크게 줘서
+    // 루트 총 도보 거리가 5000m 안팎으로 나오도록 유도한다 (반경 자체는 2000m로 그대로 둬서
+    // 스탑 하나하나의 이동 거리가 무리하게 길어지지는 않는다).
+    private static final int[] DISTANCE_BAND_WEIGHTS = {1, 2, 3, 4};
 
     private final StoreRepository storeRepository;
     private final RouteRepository routeRepository;
@@ -154,7 +159,8 @@ public class RouteServiceImpl implements RouteService {
         return sampleAcrossDistanceBands(base);
     }
 
-    // 이미 거리순으로 정렬된 목록을 가까운 구간부터 먼 구간까지 N등분해서 구간마다 고르게 뽑는다
+    // 이미 거리순으로 정렬된 목록을 가까운 구간부터 먼 구간까지 N등분하고,
+    // DISTANCE_BAND_WEIGHTS 비중대로 구간마다 다른 개수를 뽑는다 (먼 구간일수록 더 많이)
     private List<Store> sampleAcrossDistanceBands(List<Store> sortedByDistance) {
         if (sortedByDistance.size() <= MAX_CANDIDATES) {
             return sortedByDistance;
@@ -162,7 +168,10 @@ public class RouteServiceImpl implements RouteService {
 
         List<Store> sampled = new ArrayList<>();
         int bandSize = (int) Math.ceil(sortedByDistance.size() / (double) DISTANCE_BAND_COUNT);
-        int perBand = MAX_CANDIDATES / DISTANCE_BAND_COUNT;
+        int weightSum = 0;
+        for (int weight : DISTANCE_BAND_WEIGHTS) {
+            weightSum += weight;
+        }
 
         for (int band = 0; band < DISTANCE_BAND_COUNT; band++) {
             int from = band * bandSize;
@@ -171,7 +180,8 @@ public class RouteServiceImpl implements RouteService {
                 continue;
             }
             List<Store> bandStores = sortedByDistance.subList(from, to);
-            sampled.addAll(bandStores.subList(0, Math.min(perBand, bandStores.size())));
+            int quota = MAX_CANDIDATES * DISTANCE_BAND_WEIGHTS[band] / weightSum;
+            sampled.addAll(bandStores.subList(0, Math.min(quota, bandStores.size())));
         }
 
         return sampled;
