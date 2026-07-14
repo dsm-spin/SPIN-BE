@@ -25,12 +25,20 @@
     margin: 6px;
   }
   #fallback { display: none; margin-top: 24px; }
+  #iab-guide { display: none; margin-top: 24px; }
+  #iab-guide strong { color: #fff; }
 </style>
 </head>
 <body>
   <h1>친구가 완주한 루트, 궁금하지 않아요?</h1>
   <p>Spin 앱에서 바로 확인해보세요.</p>
   <a class="button" id="open-app" href="#">Spin에서 보기</a>
+
+  <div id="iab-guide">
+    <p>인스타그램 브라우저에서는 앱으로 바로 열리지 않아요.<br>
+      오른쪽 위 <strong>•••</strong> 버튼을 눌러<br><strong>"다른 브라우저로 열기"</strong>를 선택해주세요.</p>
+    <a class="button" id="copy-link" href="#">링크 복사하기</a>
+  </div>
 
   <div id="fallback">
     <p>앱이 안 열리시나요?</p>
@@ -42,11 +50,21 @@
   <script>
     var params = new URLSearchParams(window.location.search);
     var routeId = params.get('routeId');
-    var deepLink = routeId ? ('spin://route?id=' + encodeURIComponent(routeId)) : 'spin://';
+    var deepLink = routeId ? ('spinapp://share?routeId=' + encodeURIComponent(routeId)) : 'spinapp://share';
 
     document.getElementById('open-app').href = deepLink;
 
+    // 인스타그램/페이스북/카카오톡 등 인앱 브라우저는 보안상 커스텀 스킴(spin://) 리다이렉트를
+    // 조용히 막는 경우가 많아서, 리다이렉트를 시도하는 대신 "다른 브라우저로 열기" 안내로 바로 넘어간다
+    function isInAppBrowser() {
+      return /Instagram|FBAN|FBAV|KAKAOTALK|Line|NAVER/i.test(navigator.userAgent || '');
+    }
+
     function tryOpenApp() {
+      if (isInAppBrowser()) {
+        document.getElementById('iab-guide').style.display = 'block';
+      }
+
       window.location.href = deepLink;
       // 앱으로 넘어갔으면 이 페이지는 백그라운드로 밀려나서 아래 타이머가 의미 없어지고,
       // 안 넘어갔을 때만(앱 미설치 등) 폴백 버튼을 보여준다
@@ -54,6 +72,29 @@
         document.getElementById('fallback').style.display = 'block';
       }, 1500);
     }
+
+    document.getElementById('copy-link').addEventListener('click', function (e) {
+      e.preventDefault();
+      var link = window.location.href;
+      var label = e.target;
+
+      function showCopied() {
+        label.textContent = '복사 완료! 다른 브라우저에 붙여넣어주세요';
+      }
+
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(link).then(showCopied);
+        return;
+      }
+
+      var input = document.createElement('input');
+      input.value = link;
+      document.body.appendChild(input);
+      input.select();
+      document.execCommand('copy');
+      document.body.removeChild(input);
+      showCopied();
+    });
 
     tryOpenApp();
   </script>
