@@ -20,3 +20,6 @@ anthropic:
 
 app:
   deep-link-scheme: spin
+  # 데모 기간 임시 설정: true면 QR 값과 무관하게 아무 QR이나 찍으면 체크인된다.
+  # 실사용 전환 시 false로 되돌릴 것.
+  demo-checkin-enabled: true

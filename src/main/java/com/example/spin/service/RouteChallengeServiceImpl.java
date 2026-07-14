@@ -6,6 +6,7 @@ import java.util.Optional;
 import java.util.Set;
 import java.util.stream.Collectors;
 
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -53,6 +54,11 @@ public class RouteChallengeServiceImpl implements RouteChallengeService {
     private final StoreRepository storeRepository;
     private final PointRepository pointRepository;
 
+    // 데모 기간에는 QR 값과 무관하게 아무 QR이나 찍으면 체크인되도록 하기 위한 임시 스위치.
+    // 실사용 전환 시 false로 되돌리면 원래의 정확한 QR-가게 매칭 로직으로 복원된다.
+    @Value("${app.demo-checkin-enabled:false}")
+    private boolean demoCheckInEnabled;
+
     @Override
     @Transactional
     public ChallengeResponse startChallenge(String accountId, int routeId) {
@@ -71,31 +77,44 @@ public class RouteChallengeServiceImpl implements RouteChallengeService {
     public CheckInResponse checkIn(String accountId, CheckInRequest request) {
         User user = findUser(accountId);
 
-        Store store = storeRepository.findByQrCode(request.qrCode())
-                .orElseThrow(() -> new NotFoundException("존재하지 않는 QR 코드입니다"));
-
-        // QR(가게 고정값)만으로는 어느 도전 기록인지 알 수 없으니, 이 가게를 스탑으로 포함한
-        // "진행 중인" 도전 기록을 최근 시작한 순으로 찾는다 (여러 개 겹치면 가장 최근 것 채택)
         List<RouteChallenge> inProgress = routeChallengeRepository
                 .findByUserAndStatusOrderByStartedAtDesc(user, ChallengeStatus.IN_PROGRESS);
 
-        RouteChallenge challenge = null;
-        RouteStop routeStop = null;
-        for (RouteChallenge candidate : inProgress) {
-            Optional<RouteStop> stop = routeStopRepository.findByRouteAndStore(candidate.getRoute(), store);
-            if (stop.isPresent()) {
-                challenge = candidate;
-                routeStop = stop.get();
-                break;
+        RouteChallenge challenge;
+        RouteStop routeStop;
+
+        if (demoCheckInEnabled) {
+            RouteChallenge activeChallenge = inProgress.stream().findFirst()
+                    .orElseThrow(() -> new NotOnRouteException("진행 중인 도전 기록이 없습니다"));
+            challenge = activeChallenge;
+            routeStop = routeStopRepository.findByRouteOrderByVisitOrderAsc(activeChallenge.getRoute()).stream()
+                    .filter(stop -> !checkInRepository.existsByRouteChallengeAndRouteStop(activeChallenge, stop))
+                    .findFirst()
+                    .orElseThrow(() -> new AlreadyCheckedInException("이미 모든 가게를 체크인했습니다"));
+        } else {
+            Store store = storeRepository.findByQrCode(request.qrCode())
+                    .orElseThrow(() -> new NotFoundException("존재하지 않는 QR 코드입니다"));
+
+            // QR(가게 고정값)만으로는 어느 도전 기록인지 알 수 없으니, 이 가게를 스탑으로 포함한
+            // "진행 중인" 도전 기록을 최근 시작한 순으로 찾는다 (여러 개 겹치면 가장 최근 것 채택)
+            challenge = null;
+            routeStop = null;
+            for (RouteChallenge candidate : inProgress) {
+                Optional<RouteStop> stop = routeStopRepository.findByRouteAndStore(candidate.getRoute(), store);
+                if (stop.isPresent()) {
+                    challenge = candidate;
+                    routeStop = stop.get();
+                    break;
+                }
             }
-        }
 
-        if (challenge == null) {
-            throw new NotOnRouteException("진행 중인 루트 중에 이 가게가 포함된 도전 기록이 없습니다");
-        }
+            if (challenge == null) {
+                throw new NotOnRouteException("진행 중인 루트 중에 이 가게가 포함된 도전 기록이 없습니다");
+            }
 
-        if (checkInRepository.existsByRouteChallengeAndRouteStop(challenge, routeStop)) {
-            throw new AlreadyCheckedInException("이미 체크인한 가게입니다");
+            if (checkInRepository.existsByRouteChallengeAndRouteStop(challenge, routeStop)) {
+                throw new AlreadyCheckedInException("이미 체크인한 가게입니다");
+            }
         }
 
         checkInRepository.save(new CheckIn(challenge, routeStop, LocalDateTime.now()));
