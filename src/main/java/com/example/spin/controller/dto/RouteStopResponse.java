@@ -3,6 +3,7 @@ package com.example.spin.controller.dto;
 import io.swagger.v3.oas.annotations.media.Schema;
 
 public record RouteStopResponse(
+        int storeId,
         String storeName,
         @Schema(description = "업종 카테고리 (예: \"로스터리 카페\")") String category,
         String address,

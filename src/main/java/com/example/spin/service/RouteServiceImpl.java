@@ -106,7 +106,7 @@ public class RouteServiceImpl implements RouteService {
 
             route.getStops().add(new RouteStop(route, store, visitOrder, walkMinutes, reason, category));
             stopResponses.add(new RouteStopResponse(
-                    store.getName(), category, store.getAddress(),
+                    store.getId(), store.getName(), category, store.getAddress(),
                     store.getLatitude(), store.getLongitude(), walkMinutes, reason));
         }
 
@@ -123,7 +123,7 @@ public class RouteServiceImpl implements RouteService {
 
         List<RouteStopResponse> stopResponses = route.getStops().stream()
                 .map(stop -> new RouteStopResponse(
-                        stop.getStore().getName(), stop.getCategory(), stop.getStore().getAddress(),
+                        stop.getStore().getId(), stop.getStore().getName(), stop.getCategory(), stop.getStore().getAddress(),
                         stop.getStore().getLatitude(), stop.getStore().getLongitude(),
                         stop.getTravelMinutesFromPrevious(), stop.getRecommendationReason()))
                 .toList();
