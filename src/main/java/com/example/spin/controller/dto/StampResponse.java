@@ -3,6 +3,7 @@ package com.example.spin.controller.dto;
 import io.swagger.v3.oas.annotations.media.Schema;
 
 public record StampResponse(
+        int storeId,
         String storeName,
         String category,
         int visitOrder,

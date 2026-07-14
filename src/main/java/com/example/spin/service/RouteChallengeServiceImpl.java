@@ -133,7 +133,7 @@ public class RouteChallengeServiceImpl implements RouteChallengeService {
 
         List<StampResponse> stamps = stops.stream()
                 .map(stop -> new StampResponse(
-                        stop.getStore().getName(), stop.getCategory(), stop.getVisitOrder(),
+                        stop.getStore().getId(), stop.getStore().getName(), stop.getCategory(), stop.getVisitOrder(),
                         checkedInStopIds.contains(stop.getId())))
                 .toList();
 
@@ -141,7 +141,8 @@ public class RouteChallengeServiceImpl implements RouteChallengeService {
                 .filter(stop -> !checkedInStopIds.contains(stop.getId()))
                 .findFirst()
                 .map(stop -> new NextDestinationResponse(
-                        stop.getStore().getName(), stop.getCategory(), stop.getTravelMinutesFromPrevious(),
+                        stop.getStore().getId(), stop.getStore().getName(), stop.getCategory(),
+                        stop.getTravelMinutesFromPrevious(),
                         stop.getStore().getLatitude(), stop.getStore().getLongitude()))
                 .orElse(null);
 
