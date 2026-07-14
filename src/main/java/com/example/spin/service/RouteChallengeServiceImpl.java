@@ -202,7 +202,7 @@ public class RouteChallengeServiceImpl implements RouteChallengeService {
                 .toList();
 
         return new RouteHistoryResponse(
-                challenge.getId(), route.getRegion(), route.getPurpose(),
+                challenge.getId(), route.getId(), route.getRegion(), route.getPurpose(),
                 route.getTotalDistanceMeters(), route.getEstimatedDurationMinutes(),
                 challenge.getStartedAt(), challenge.getCompletedAt(), challenge.getPhotoUrl(), storeNames);
     }

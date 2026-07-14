@@ -8,6 +8,7 @@ import io.swagger.v3.oas.annotations.media.Schema;
 // 완주(status=COMPLETED)한 도전 기록만 히스토리에 노출된다
 public record RouteHistoryResponse(
         int challengeId,
+        int routeId,
         String region,
         String purpose,
         int totalDistanceMeters,
