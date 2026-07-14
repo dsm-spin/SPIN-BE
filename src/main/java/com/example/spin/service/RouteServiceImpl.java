@@ -109,10 +109,10 @@ public class RouteServiceImpl implements RouteService {
                     store.getName(), category, store.getAddress(), walkMinutes, reason));
         }
 
-        routeRepository.save(route);
+        Route savedRoute = routeRepository.save(route);
 
         return new RouteGenerateResponse(
-                totalDistanceMeters, estimatedDurationMinutes, stopResponses.size(), stopResponses);
+                savedRoute.getId(), totalDistanceMeters, estimatedDurationMinutes, stopResponses.size(), stopResponses);
     }
 
     @Override
