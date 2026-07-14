@@ -33,8 +33,14 @@ public class RouteServiceImpl implements RouteService {
     private static final int MAX_CANDIDATE_RADIUS_METERS = 2000;
 
     // 지역에 수천 건씩 있는 경우 반경 필터링만으로는 개수가 안 줄 수 있어(밀집 지역),
-    // 프롬프트 폭주(400 prompt too long)를 막기 위해 후보 개수 자체에 상한을 둔다
-    private static final int MAX_CANDIDATES = 40;
+    // 프롬프트 폭주(400 prompt too long)를 막기 위해 후보 개수 자체에 상한을 둔다.
+    // 가게 1곳당 대략 50토큰 안팎이라 400개로 잡아도 2만 토큰 수준 (Anthropic 한도 20만 토큰 대비 여유 충분)
+    private static final int MAX_CANDIDATES = 400;
+
+    // 반경 안을 이만큼의 구간으로 나눠서, 가까운 곳부터 먼 곳까지 고르게 후보를 뽑는다.
+    // 그냥 가까운 순으로 40개를 자르면 번화가처럼 밀집된 동네에서는 후보가 전부 한 골목에
+    // 몰려버려서, Claude가 뭘 고르든 가게 간 거리가 항상 짧게 나올 수밖에 없다.
+    private static final int DISTANCE_BAND_COUNT = 4;
 
     private final StoreRepository storeRepository;
     private final RouteRepository routeRepository;
@@ -48,9 +54,12 @@ public class RouteServiceImpl implements RouteService {
         List<Store> regionStores = storeRepository.findByRegion(request.region());
 
         boolean hasUserLocation = request.latitude() != null && request.longitude() != null;
-        List<Store> candidates = hasUserLocation
-                ? filterByProximity(regionStores, request.latitude(), request.longitude())
-                : filterNearAnchor(regionStores);
+        // GPS가 없으면 기준점이 없으니, 후보 목록의 첫 가게를 임시 기준점으로 삼는다
+        Store anchor = regionStores.isEmpty() ? null : regionStores.get(0);
+        double refLatitude = hasUserLocation ? request.latitude() : anchor != null ? anchor.getLatitude() : 0;
+        double refLongitude = hasUserLocation ? request.longitude() : anchor != null ? anchor.getLongitude() : 0;
+
+        List<Store> candidates = filterByProximity(regionStores, refLatitude, refLongitude);
 
         RouteRecommendation recommendation =
                 claudeRouteRecommender.recommend(request.region(), request.purpose(), candidates);
@@ -137,21 +146,33 @@ public class RouteServiceImpl implements RouteService {
                         <= MAX_CANDIDATE_RADIUS_METERS)
                 .toList();
 
-        // 반경 안에 후보가 너무 적으면(한적한 동네 등) 루트 자체를 못 만드니, 거리순으로 가장 가까운 후보들로 대체한다
+        // 반경 안에 후보가 너무 적으면(한적한 동네 등) 루트 자체를 못 만드니, 거리순 전체 후보로 대체한다
         // (지역 전체를 통째로 넘기면 프롬프트가 폭주할 수 있어 무제한 폴백은 하지 않는다)
         List<Store> base = withinRadius.size() >= 2 ? withinRadius : sortedByDistance;
-        return base.stream().limit(MAX_CANDIDATES).toList();
+        return sampleAcrossDistanceBands(base);
     }
 
-    // 사용자 GPS가 없을 때는 기준점이 없으니, 후보 목록의 첫 가게를 임시 기준점 삼아
-    // 그 근처로 후보를 좁힌다 (그래야 구 전체 수천 건이 그대로 프롬프트에 들어가는 걸 막을 수 있다)
-    private List<Store> filterNearAnchor(List<Store> candidates) {
-        if (candidates.isEmpty()) {
-            return candidates;
+    // 이미 거리순으로 정렬된 목록을 가까운 구간부터 먼 구간까지 N등분해서 구간마다 고르게 뽑는다
+    private List<Store> sampleAcrossDistanceBands(List<Store> sortedByDistance) {
+        if (sortedByDistance.size() <= MAX_CANDIDATES) {
+            return sortedByDistance;
         }
 
-        Store anchor = candidates.get(0);
-        return filterByProximity(candidates, anchor.getLatitude(), anchor.getLongitude());
+        List<Store> sampled = new ArrayList<>();
+        int bandSize = (int) Math.ceil(sortedByDistance.size() / (double) DISTANCE_BAND_COUNT);
+        int perBand = MAX_CANDIDATES / DISTANCE_BAND_COUNT;
+
+        for (int band = 0; band < DISTANCE_BAND_COUNT; band++) {
+            int from = band * bandSize;
+            int to = Math.min(from + bandSize, sortedByDistance.size());
+            if (from >= to) {
+                continue;
+            }
+            List<Store> bandStores = sortedByDistance.subList(from, to);
+            sampled.addAll(bandStores.subList(0, Math.min(perBand, bandStores.size())));
+        }
+
+        return sampled;
     }
 
     private Store findCandidate(List<Store> candidates, int storeId) {
