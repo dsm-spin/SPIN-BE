@@ -20,6 +20,7 @@ import com.example.spin.repository.RouteChallengeRepository;
 import com.example.spin.repository.RouteRepository;
 import com.example.spin.repository.StoreRepository;
 import com.example.spin.service.claude.ClaudeRouteRecommender;
+import com.example.spin.service.claude.RouteOption;
 import com.example.spin.service.claude.RouteRecommendation;
 import com.example.spin.util.WalkingDistanceCalculator;
 
@@ -53,7 +54,7 @@ public class RouteServiceImpl implements RouteService {
     private final ClaudeRouteRecommender claudeRouteRecommender;
 
     @Override
-    public RouteGenerateResponse generateRoute(RouteGenerateRequest request) {
+    public List<RouteGenerateResponse> generateRoute(RouteGenerateRequest request) {
         // Claude 호출이 오래 걸리므로(수십 초) DB 트랜잭션을 걸어두지 않는다 —
         // 조회는 트랜잭션 없이, 최종 저장은 routeRepository.save()가 자체 트랜잭션으로 처리한다
         List<Store> regionStores = storeRepository.findByRegion(request.region());
@@ -66,12 +67,20 @@ public class RouteServiceImpl implements RouteService {
 
         List<Store> candidates = filterByProximity(regionStores, refLatitude, refLongitude);
 
+        // 사용자가 비교해서 고를 수 있도록 서로 다른 루트 대안 3개를 한 번에 추천받는다
         RouteRecommendation recommendation =
                 claudeRouteRecommender.recommend(request.region(), request.purpose(), candidates);
 
+        return recommendation.options().stream()
+                .map(option -> buildAndSaveRoute(request, candidates, option, hasUserLocation))
+                .toList();
+    }
+
+    private RouteGenerateResponse buildAndSaveRoute(
+            RouteGenerateRequest request, List<Store> candidates, RouteOption option, boolean hasUserLocation) {
         // Claude는 어떤 가게를 어떤 순서로 추천하는지와 이유만 정하고,
         // 거리/도보 시간은 저장된 실제 좌표를 기준으로 우리가 직접 계산한다
-        List<Store> selectedStores = recommendation.stops().stream()
+        List<Store> selectedStores = option.stops().stream()
                 .map(stop -> findCandidate(candidates, stop.storeId()))
                 .toList();
 
@@ -104,8 +113,8 @@ public class RouteServiceImpl implements RouteService {
         List<RouteStopResponse> stopResponses = new ArrayList<>();
         for (int i = 0; i < selectedStores.size(); i++) {
             Store store = selectedStores.get(i);
-            String category = recommendation.stops().get(i).category();
-            String reason = recommendation.stops().get(i).reason();
+            String category = option.stops().get(i).category();
+            String reason = option.stops().get(i).reason();
             int walkMinutes = walkMinutesByStop.get(i);
             int visitOrder = i + 1;
 

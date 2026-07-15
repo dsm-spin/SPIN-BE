@@ -1,5 +1,7 @@
 package com.example.spin.controller;
 
+import java.util.List;
+
 import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -29,9 +31,10 @@ public class RouteController {
     private final RouteChallengeService routeChallengeService;
 
     @Operation(summary = "루트 생성",
-            description = "지역/목적(+선택적으로 사용자 위경도)을 기반으로 Claude가 후보 가맹점 중 방문 순서가 있는 루트를 추천한다.")
+            description = "지역/목적(+선택적으로 사용자 위경도)을 기반으로 Claude가 후보 가맹점 중 방문 순서가 있는 "
+                    + "서로 다른 루트 대안 3개를 추천한다. 사용자는 그중 하나를 골라 이후 \"루트 도전 시작\" API를 호출하면 된다.")
     @PostMapping
-    public RouteGenerateResponse generateRoute(@RequestBody RouteGenerateRequest request) {
+    public List<RouteGenerateResponse> generateRoute(@RequestBody RouteGenerateRequest request) {
         return routeService.generateRoute(request);
     }
 
